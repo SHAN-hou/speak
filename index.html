@@ -91,6 +91,14 @@
       border-bottom-right-radius: 6px;
       position: relative;
     }
+    .bubble.error-msg {
+      align-self: center;
+      background: #fef3c7;
+      color: #92400e;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      text-align: center;
+    }
     .hints {
       align-self: flex-start;
       font-size: 0.8rem;
@@ -129,16 +137,24 @@
     .btn.record {
       background: #10b981;
       color: white;
+      min-width: 130px;
+      justify-content: center;
     }
     .btn.record.recording {
       background: #ef4444;
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.75; }
     }
     .btn:active { transform: scale(0.96); }
+    .btn:disabled { opacity: 0.5; pointer-events: none; }
     .status {
       text-align: center;
       font-size: 0.8rem;
       color: #64748b;
-      margin-bottom: 0.5rem;
+      padding: 0.5rem 1rem 0 1rem;
     }
     .word {
       display: inline-block;
@@ -202,11 +218,12 @@
     ]}
   ];
 
-  // 状态变量
+  // ========== 状态变量 ==========
   let currentSceneIndex = 0;
   let currentDialogIndex = 0;
-  let recognition;
+  let recognition = null;      // 每次录音时重新创建
   let isRecording = false;
+  let silenceTimer = null;     // 超时计时器
 
   // DOM元素
   const sceneSelector = document.getElementById('sceneSelector');
@@ -223,6 +240,7 @@
       btn.className = 'scene-btn' + (idx === currentSceneIndex ? ' active' : '');
       btn.textContent = scene.name;
       btn.onclick = () => {
+        stopRecording(); // 切换场景时停止录音
         currentSceneIndex = idx;
         currentDialogIndex = 0;
         chatArea.innerHTML = '';
@@ -240,74 +258,58 @@
     });
   }
 
-  // ========== 对话渲染 ==========
+  // ========== 获取当前对话 ==========
   function getCurrentDialog() {
     return scenes[currentSceneIndex].dialogs[currentDialogIndex];
   }
 
+  // ========== 渲染 AI 对话 ==========
   function renderDialog(aiText, hint) {
     const dialog = getCurrentDialog();
-    // AI气泡
     const aiBubble = document.createElement('div');
     aiBubble.className = 'bubble ai';
     aiBubble.textContent = aiText || dialog.ai;
     chatArea.appendChild(aiBubble);
 
-    // 提示
     const hintDiv = document.createElement('div');
     hintDiv.className = 'hints';
     hintDiv.textContent = '💡 ' + (hint || dialog.hint);
     chatArea.appendChild(hintDiv);
 
-    // 滚动到底部
     chatArea.scrollTop = chatArea.scrollHeight;
   }
 
-  // ========== 语音识别设置 ==========
-  function initSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      statusDiv.textContent = '❌ 您的浏览器不支持语音识别，请使用Chrome/Edge。';
-      return null;
-    }
-    const recog = new SpeechRecognition();
-    recog.lang = 'en-US';
-    recog.interimResults = false;
-    recog.maxAlternatives = 1;
-    recog.continuous = false;
-    return recog;
-  }
-
-  // 词对比函数
+  // ========== 单词对比 ==========
   function compareWords(expected, spoken) {
-    const expWords = expected.toLowerCase().replace(/[.,!?]/g, '').split(/\s+/);
-    const spkWords = spoken.toLowerCase().replace(/[.,!?]/g, '').split(/\s+/);
+    const expWords = expected.toLowerCase().replace(/[.,!?]/g, '').split(/\s+/).filter(w => w);
+    const spkWords = spoken.toLowerCase().replace(/[.,!?]/g, '').split(/\s+/).filter(w => w);
     const result = [];
     let expIdx = 0, spkIdx = 0;
+
     while (expIdx < expWords.length && spkIdx < spkWords.length) {
       if (expWords[expIdx] === spkWords[spkIdx]) {
-        result.push({ word: expWords[expId_], type: 'match' });
-        expIndex++;
+        result.push({ word: expWords[expIdx], type: 'match' });
+        expIdx++;
         spkIdx++;
       } else {
-        // 尝试跳过 spoken 中的一个词（可能多说）
+        // 看看 spoken 的下一个词是否匹配当前 expected 词
         if (spkIdx + 1 < spkWords.length && expWords[expIdx] === spkWords[spkIdx + 1]) {
           result.push({ word: spkWords[spkIdx], type: 'extra' });
           spkIdx++;
-        }
-        // 或者 expected 中的词缺失
-        else {
+        } else if (expIdx + 1 < expWords.length && expWords[expIdx + 1] === spkWords[spkIdx]) {
+          result.push({ word: expWords[expIdx], type: 'missing' });
+          expIdx++;
+        } else {
           result.push({ word: expWords[expIdx], type: 'missing' });
           expIdx++;
         }
       }
     }
-    // 剩余的expected词
+
     while (expIdx < expWords.length) {
       result.push({ word: expWords[expIdx], type: 'missing' });
       expIdx++;
     }
-    // 剩余的spoken词
     while (spkIdx < spkWords.length) {
       result.push({ word: spkWords[spkIdx], type: 'extra' });
       spkIdx++;
@@ -322,30 +324,56 @@
     return Math.round((matched / totalExpected) * 100);
   }
 
-  // 显示用户回答结果
+  // ========== 显示用户结果 ==========
   function showUserResponse(spokenText) {
     const dialog = getCurrentDialog();
+    if (!dialog) return;
+
     const expected = dialog.expected;
     const comparison = compareWords(expected, spokenText);
     const score = calculateScore(comparison);
 
-    // 用户气泡
     const userBubble = document.createElement('div');
     userBubble.className = 'bubble user';
-    userBubble.innerHTML = `<div style="margin-bottom:4px">你说：<strong>"${spokenText}"</strong></div>`;
-    const wordsHtml = comparison.map(c => {
-      const cls = c.type === 'match' ? 'match' : (c.type === 'missing' ? 'missing' : 'extra');
-      return `<span class="word ${cls}">${c.word}</span>`;
-    }).join(' ');
-    userBubble.innerHTML += `<div>期望：${comparison.filter(c=>c.type!=='extra').map(c=>`<span class="word ${c.type==='match'?'match':'missing'}">${c.word}</span>`).join(' ')}</div>`;
-    userBubble.innerHTML += `<div class="score">得分：${score}% ${score>=80?'🎉':score>=50?'👍':'💪'}</div>`;
+
+    let html = `<div style="margin-bottom:6px">你说：<strong>"${escapeHTML(spokenText)}"</strong></div>`;
+
+    // 期望答案逐词标注
+    const expDisplay = comparison
+      .filter(c => c.type !== 'extra')
+      .map(c => `<span class="word ${c.type === 'match' ? 'match' : 'missing'}">${escapeHTML(c.word)}</span>`)
+      .join(' ');
+    html += `<div style="margin-bottom:4px">期望：${expDisplay}</div>`;
+
+    // 多余词显示
+    const extras = comparison.filter(c => c.type === 'extra');
+    if (extras.length > 0) {
+      html += `<div style="font-size:0.8rem;opacity:0.8">多余词：${extras.map(c => `<span class="word extra">${escapeHTML(c.word)}</span>`).join(' ')}</div>`;
+    }
+
+    html += `<div class="score">得分：${score}% ${score >= 80 ? '🎉' : score >= 50 ? '👍' : '💪 再试试'}</div>`;
+    userBubble.innerHTML = html;
     chatArea.appendChild(userBubble);
     chatArea.scrollTop = chatArea.scrollHeight;
 
-    // 如果得分太低，自动示范
+    // 得分太低时自动播放标准音
     if (score < 60) {
-      setTimeout(() => speakText(expected), 1000);
+      setTimeout(() => speakText(expected), 800);
     }
+  }
+
+  function showStatusBubble(message) {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble error-msg';
+    bubble.textContent = message;
+    chatArea.appendChild(bubble);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   // ========== 语音合成 ==========
@@ -358,10 +386,154 @@
     window.speechSynthesis.speak(utterance);
   }
 
-  // ========== 开始一轮对话（显示AI说的）==========
+  // ========== 语音识别（核心修复）==========
+  function createRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return null;
+
+    const recog = new SpeechRecognition();
+    recog.lang = 'en-US';
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    recog.continuous = false;
+
+    // 超时：8秒没人说话自动停止
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      if (isRecording) {
+        stopRecording();
+        showStatusBubble('⏰ 没有检测到语音，请再试一次');
+        statusDiv.textContent = '超时了，点击录音按钮重试';
+      }
+    }, 8000);
+
+    recog.onresult = (event) => {
+      clearTimeout(silenceTimer);
+      const spoken = event.results[0][0].transcript.trim();
+      statusDiv.textContent = '识别完成 ✓';
+
+      if (!spoken) {
+        showStatusBubble('🤔 没有听清，请大声一点再试');
+        resetButtonState();
+        return;
+      }
+
+      showUserResponse(spoken);
+      resetButtonState();
+
+      // 自动进入下一轮
+      setTimeout(() => {
+        if (currentDialogIndex < scenes[currentSceneIndex].dialogs.length) {
+          nextRound();
+        }
+      }, 2000);
+    };
+
+    recog.onerror = (event) => {
+      clearTimeout(silenceTimer);
+      console.log('语音识别错误:', event.error);
+
+      const errorMessages = {
+        'no-speech': '没有检测到语音，请再试一次',
+        'aborted': '录音已取消',
+        'audio-capture': '找不到麦克风，请检查权限',
+        'not-allowed': '麦克风权限被拒绝，请在浏览器设置中允许',
+        'network': '网络连接失败，语音识别需要联网',
+        'bad-grammar': '识别出错，请重试',
+        'language-not-supported': '浏览器不支持英文识别，请使用 Chrome'
+      };
+
+      const msg = errorMessages[event.error] || `识别错误：${event.error}`;
+      statusDiv.textContent = msg;
+      showStatusBubble('⚠️ ' + msg);
+      resetButtonState();
+    };
+
+    recog.onend = () => {
+      clearTimeout(silenceTimer);
+      // onend 可能在 onresult 之后触发，也可能独立触发（比如没人说话）
+      // 如果此时还在录音状态，说明异常结束，重置
+      if (isRecording) {
+        resetButtonState();
+        statusDiv.textContent = '识别已结束，如无结果请重试';
+      }
+    };
+
+    return recog;
+  }
+
+  function resetButtonState() {
+    isRecording = false;
+    recordBtn.classList.remove('recording');
+    recordBtn.innerHTML = '🎤 开始录音';
+    recordBtn.disabled = false;
+  }
+
+  function stopRecording() {
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch (e) {
+        // 忽略 stop 时的错误
+      }
+    }
+    clearTimeout(silenceTimer);
+    resetButtonState();
+  }
+
+  // ========== 录音按钮（重写逻辑）==========
+  recordBtn.addEventListener('click', () => {
+    // 如果正在录音，手动停止
+    if (isRecording) {
+      stopRecording();
+      statusDiv.textContent = '录音已停止';
+      return;
+    }
+
+    // 检查浏览器支持
+    if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+      showStatusBubble('❌ 请使用 Chrome 或 Edge 浏览器打开');
+      statusDiv.textContent = '浏览器不支持语音识别';
+      return;
+    }
+
+    // 🔑 关键修复：每次开始录音都创建新对象
+    if (recognition) {
+      try { recognition.abort(); } catch (e) {}
+      recognition = null;
+    }
+
+    recognition = createRecognition();
+    if (!recognition) {
+      showStatusBubble('❌ 无法启动语音识别');
+      return;
+    }
+
+    try {
+      recognition.start();
+      isRecording = true;
+      recordBtn.classList.add('recording');
+      recordBtn.innerHTML = '⏹️ 停止录音';
+      statusDiv.textContent = '正在听...请说英文';
+    } catch (e) {
+      console.error('启动识别失败:', e);
+      showStatusBubble('启动失败，请刷新页面重试');
+      resetButtonState();
+    }
+  });
+
+  // ========== 示范按钮 ==========
+  demoBtn.addEventListener('click', () => {
+    const dialog = getCurrentDialog();
+    if (dialog) {
+      speakText(dialog.expected);
+      statusDiv.textContent = '播放标准回答中...';
+    }
+  });
+
+  // ========== 对话流程 ==========
   function startRound() {
     if (currentDialogIndex >= scenes[currentSceneIndex].dialogs.length) {
-      // 场景完成
       const completeMsg = document.createElement('div');
       completeMsg.className = 'bubble ai';
       completeMsg.textContent = '🎉 场景练习完成！选择新场景继续吧。';
@@ -372,75 +544,18 @@
     }
     const dialog = getCurrentDialog();
     renderDialog(dialog.ai, dialog.hint);
-    // 自动播放AI的话
     speakText(dialog.ai);
   }
 
-  // 下一轮
   function nextRound() {
     currentDialogIndex++;
     startRound();
   }
 
-  // ========== 录音按钮事件 ==========
-  recordBtn.addEventListener('click', () => {
-    if (!recognition) {
-      recognition = initSpeechRecognition();
-      if (!recognition) return;
-      
-      recognition.onresult = (event) => {
-        const spoken = event.results[0][0].transcript;
-        statusDiv.textContent = '处理中...';
-        showUserResponse(spoken);
-        isRecording = false;
-        recordBtn.classList.remove('recording');
-        recordBtn.innerHTML = '🎤 开始录音';
-        // 自动进入下一轮（延迟2秒）
-        setTimeout(nextRound, 2000);
-      };
-
-      recognition.onerror = (event) => {
-        statusDiv.textContent = '识别错误：' + event.error + ' 再试一次';
-        isRecording = false;
-        recordBtn.classList.remove('recording');
-        recordBtn.innerHTML = '🎤 开始录音';
-      };
-
-      recognition.onend = () => {
-        if (isRecording) {
-          recognition.start();
-        }
-      };
-    }
-
-    if (isRecording) {
-      recognition.stop();
-      isRecording = false;
-      recordBtn.classList.remove('recording');
-      recordBtn.innerHTML = '🎤 开始录音';
-      statusDiv.textContent = '录音已停止';
-    } else {
-      recognition.start();
-      isRecording = true;
-      recordBtn.classList.add('recording');
-      recordBtn.innerHTML = '⏹️ 停止录音';
-      statusDiv.textContent = '正在听...请说英文';
-    }
-  });
-
-  // 示范按钮
-  demoBtn.addEventListener('click', () => {
-    const dialog = getCurrentDialog();
-    if (dialog) {
-      speakText(dialog.expected);
-      statusDiv.textContent = '播放标准回答中...';
-    }
-  });
-
-  // ========== 页面加载完毕 ==========
+  // ========== 页面加载 ==========
   window.addEventListener('load', () => {
     initSceneButtons();
-    startRound(); // 默认开始第一个场景第一轮
+    startRound();
   });
 </script>
 </body>
