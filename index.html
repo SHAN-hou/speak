@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>旅游口语练习 - 开口说</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .container {
+      max-width: 450px;
+      width: 100%;
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 90vh;
+      max-height: 800px;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.2rem 1.5rem;
+      text-align: center;
+      font-size: 1.3rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .scene-selector {
+      padding: 0.8rem 1rem;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      gap: 0.5rem;
+      overflow-x: auto;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+    }
+    .scene-btn {
+      padding: 0.4rem 1rem;
+      border-radius: 20px;
+      border: 1px solid #cbd5e0;
+      background: white;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .scene-btn.active {
+      background: #667eea;
+      color: white;
+      border-color: #667eea;
+    }
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      background: #f9fafb;
+    }
+    .bubble {
+      max-width: 85%;
+      padding: 0.8rem 1rem;
+      border-radius: 18px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .bubble.ai {
+      align-self: flex-start;
+      background: #e2e8f0;
+      color: #1e293b;
+      border-bottom-left-radius: 6px;
+      margin-bottom: 0.2rem;
+    }
+    .bubble.user {
+      align-self: flex-end;
+      background: #667eea;
+      color: white;
+      border-bottom-right-radius: 6px;
+      position: relative;
+    }
+    .hints {
+      align-self: flex-start;
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: -0.5rem;
+      margin-left: 0.5rem;
+      margin-bottom: 0.3rem;
+    }
+    .score {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-top: 0.3rem;
+    }
+    .controls {
+      padding: 1rem;
+      background: white;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+    }
+    .btn {
+      padding: 0.7rem 1.5rem;
+      border-radius: 25px;
+      border: none;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: #e2e8f0;
+      color: #334155;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .btn.record {
+      background: #10b981;
+      color: white;
+    }
+    .btn.record.recording {
+      background: #ef4444;
+    }
+    .btn:active { transform: scale(0.96); }
+    .status {
+      text-align: center;
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+    }
+    .word {
+      display: inline-block;
+      margin: 2px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    .word.match { background: #a7f3d0; color: #065f46; }
+    .word.missing { background: #fecaca; color: #991b1b; text-decoration: line-through; }
+    .word.extra { background: #fef08a; color: #854d0e; }
+    @media (max-width: 400px) {
+      .btn {padding: 0.6rem 1rem; font-size: 0.9rem;}
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">✈️ 旅游英语开口练</div>
+  <div class="scene-selector" id="sceneSelector"></div>
+  <div class="chat-area" id="chatArea"></div>
+  <div class="controls">
+    <button class="btn record" id="recordBtn">🎤 开始录音</button>
+    <button class="btn" id="demoBtn">🔊 听示范</button>
+  </div>
+  <div class="status" id="status">点击场景开始练习</div>
+</div>
+
+<script>
+  // ========== 场景数据 ==========
+  const scenes = [
+    { name: "🛫 机场值机", dialogs: [
+      {ai: "Hello, may I have your passport, please?", expected: "Here you go.", hint: "递给对方护照时说"},
+      {ai: "Do you have any check-in luggage?", expected: "Yes, one suitcase.", hint: "有一个托运箱"},
+      {ai: "Here is your boarding pass. Gate B12.", expected: "Thank you.", hint: "谢谢"},
+      {ai: "Your flight will board at 3:30 pm.", expected: "Got it, thanks.", hint: "明白了"}
+    ]},
+    { name: "🏨 酒店入住", dialogs: [
+      {ai: "Good evening, do you have a reservation?", expected: "Yes, under the name of Chen.", hint: "用Chen的名字预订的"},
+      {ai: "May I see your ID, please?", expected: "Sure, here it is.", hint: "给你"},
+      {ai: "You are in room 506. Breakfast is from 7 to 10.", expected: "Thanks, that sounds great.", hint: "听起来不错"},
+      {ai: "Do you need help with your luggage?", expected: "No, I can manage.", hint: "不用，我可以"}
+    ]},
+    { name: "🍽️ 餐厅点餐", dialogs: [
+      {ai: "Hi, table for two?", expected: "Yes, please.", hint: "是的"},
+      {ai: "Can I get you something to drink first?", expected: "I'll have orange juice.", hint: "橙汁"},
+      {ai: "Are you ready to order?", expected: "What do you recommend?", hint: "有什么推荐？"},
+      {ai: "Our pasta is really popular.", expected: "I'll go with that.", hint: "就它了"}
+    ]},
+    { name: "🛍️ 购物对话", dialogs: [
+      {ai: "Can I help you find something?", expected: "I'm just looking, thanks.", hint: "随便看看"},
+      {ai: "This is on sale, 30% off.", expected: "That's a good deal.", hint: "很划算"},
+      {ai: "Would you like to try it on?", expected: "Yes, where is the fitting room?", hint: "试衣间在哪？"},
+      {ai: "How would you like to pay?", expected: "By card, please.", hint: "刷卡"}
+    ]},
+    { name: "🗺️ 问路", dialogs: [
+      {ai: "Excuse me, is the national museum near here?", expected: "Yes, it's about 10 minutes' walk.", hint: "步行10分钟"},
+      {ai: "Which way should I go?", expected: "Go straight and turn right at the traffic light.", hint: "直走红灯右转"},
+      {ai: "Is there a subway station nearby?", expected: "Yes, just follow this street.", hint: "沿着这条街"},
+      {ai: "Thank you so much!", expected: "You're welcome.", hint: "不客气"}
+    ]}
+  ];
+
+  // 状态变量
+  let currentSceneIndex = 0;
+  let currentDialogIndex = 0;
+  let recognition;
+  let isRecording = false;
+
+  // DOM元素
+  const sceneSelector = document.getElementById('sceneSelector');
+  const chatArea = document.getElementById('chatArea');
+  const recordBtn = document.getElementById('recordBtn');
+  const demoBtn = document.getElementById('demoBtn');
+  const statusDiv = document.getElementById('status');
+
+  // ========== 初始化场景按钮 ==========
+  function initSceneButtons() {
+    sceneSelector.innerHTML = '';
+    scenes.forEach((scene, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'scene-btn' + (idx === currentSceneIndex ? ' active' : '');
+      btn.textContent = scene.name;
+      btn.onclick = () => {
+        currentSceneIndex = idx;
+        currentDialogIndex = 0;
+        chatArea.innerHTML = '';
+        statusDiv.textContent = '开始新场景练习';
+        updateSceneButtons();
+      };
+      sceneSelector.appendChild(btn);
+    });
+  }
+
+  function updateSceneButtons() {
+    const buttons = sceneSelector.querySelectorAll('.scene-btn');
+    buttons.forEach((btn, idx) => {
+      btn.classList.toggle('active', idx === currentSceneIndex);
+    });
+  }
+
+  // ========== 对话渲染 ==========
+  function getCurrentDialog() {
+    return scenes[currentSceneIndex].dialogs[currentDialogIndex];
+  }
+
+  function renderDialog(aiText, hint) {
+    const dialog = getCurrentDialog();
+    // AI气泡
+    const aiBubble = document.createElement('div');
+    aiBubble.className = 'bubble ai';
+    aiBubble.textContent = aiText || dialog.ai;
+    chatArea.appendChild(aiBubble);
+
+    // 提示
+    const hintDiv = document.createElement('div');
+    hintDiv.className = 'hints';
+    hintDiv.textContent = '💡 ' + (hint || dialog.hint);
+    chatArea.appendChild(hintDiv);
+
+    // 滚动到底部
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  // ========== 语音识别设置 ==========
+  function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      statusDiv.textContent = '❌ 您的浏览器不支持语音识别，请使用Chrome/Edge。';
+      return null;
+    }
+    const recog = new SpeechRecognition();
+    recog.lang = 'en-US';
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    recog.continuous = false;
+    return recog;
+  }
+
+  // 词对比函数
+  function compareWords(expected, spoken) {
+    const expWords = expected.toLowerCase().replace(/[.,!?]/g, '').split(/\s+/);
+    const spkWords = spoken.toLowerCase().replace(/[.,!?]/g, '').split(/\s+/);
+    const result = [];
+    let expIdx = 0, spkIdx = 0;
+    while (expIdx < expWords.length && spkIdx < spkWords.length) {
+      if (expWords[expIdx] === spkWords[spkIdx]) {
+        result.push({ word: expWords[expId_], type: 'match' });
+        expIndex++;
+        spkIdx++;
+      } else {
+        // 尝试跳过 spoken 中的一个词（可能多说）
+        if (spkIdx + 1 < spkWords.length && expWords[expIdx] === spkWords[spkIdx + 1]) {
+          result.push({ word: spkWords[spkIdx], type: 'extra' });
+          spkIdx++;
+        }
+        // 或者 expected 中的词缺失
+        else {
+          result.push({ word: expWords[expIdx], type: 'missing' });
+          expIdx++;
+        }
+      }
+    }
+    // 剩余的expected词
+    while (expIdx < expWords.length) {
+      result.push({ word: expWords[expIdx], type: 'missing' });
+      expIdx++;
+    }
+    // 剩余的spoken词
+    while (spkIdx < spkWords.length) {
+      result.push({ word: spkWords[spkIdx], type: 'extra' });
+      spkIdx++;
+    }
+    return result;
+  }
+
+  function calculateScore(comparison) {
+    const totalExpected = comparison.filter(c => c.type !== 'extra').length;
+    const matched = comparison.filter(c => c.type === 'match').length;
+    if (totalExpected === 0) return 100;
+    return Math.round((matched / totalExpected) * 100);
+  }
+
+  // 显示用户回答结果
+  function showUserResponse(spokenText) {
+    const dialog = getCurrentDialog();
+    const expected = dialog.expected;
+    const comparison = compareWords(expected, spokenText);
+    const score = calculateScore(comparison);
+
+    // 用户气泡
+    const userBubble = document.createElement('div');
+    userBubble.className = 'bubble user';
+    userBubble.innerHTML = `<div style="margin-bottom:4px">你说：<strong>"${spokenText}"</strong></div>`;
+    const wordsHtml = comparison.map(c => {
+      const cls = c.type === 'match' ? 'match' : (c.type === 'missing' ? 'missing' : 'extra');
+      return `<span class="word ${cls}">${c.word}</span>`;
+    }).join(' ');
+    userBubble.innerHTML += `<div>期望：${comparison.filter(c=>c.type!=='extra').map(c=>`<span class="word ${c.type==='match'?'match':'missing'}">${c.word}</span>`).join(' ')}</div>`;
+    userBubble.innerHTML += `<div class="score">得分：${score}% ${score>=80?'🎉':score>=50?'👍':'💪'}</div>`;
+    chatArea.appendChild(userBubble);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    // 如果得分太低，自动示范
+    if (score < 60) {
+      setTimeout(() => speakText(expected), 1000);
+    }
+  }
+
+  // ========== 语音合成 ==========
+  function speakText(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // ========== 开始一轮对话（显示AI说的）==========
+  function startRound() {
+    if (currentDialogIndex >= scenes[currentSceneIndex].dialogs.length) {
+      // 场景完成
+      const completeMsg = document.createElement('div');
+      completeMsg.className = 'bubble ai';
+      completeMsg.textContent = '🎉 场景练习完成！选择新场景继续吧。';
+      chatArea.appendChild(completeMsg);
+      chatArea.scrollTop = chatArea.scrollHeight;
+      statusDiv.textContent = '很棒！可以换一个场景';
+      return;
+    }
+    const dialog = getCurrentDialog();
+    renderDialog(dialog.ai, dialog.hint);
+    // 自动播放AI的话
+    speakText(dialog.ai);
+  }
+
+  // 下一轮
+  function nextRound() {
+    currentDialogIndex++;
+    startRound();
+  }
+
+  // ========== 录音按钮事件 ==========
+  recordBtn.addEventListener('click', () => {
+    if (!recognition) {
+      recognition = initSpeechRecognition();
+      if (!recognition) return;
+      
+      recognition.onresult = (event) => {
+        const spoken = event.results[0][0].transcript;
+        statusDiv.textContent = '处理中...';
+        showUserResponse(spoken);
+        isRecording = false;
+        recordBtn.classList.remove('recording');
+        recordBtn.innerHTML = '🎤 开始录音';
+        // 自动进入下一轮（延迟2秒）
+        setTimeout(nextRound, 2000);
+      };
+
+      recognition.onerror = (event) => {
+        statusDiv.textContent = '识别错误：' + event.error + ' 再试一次';
+        isRecording = false;
+        recordBtn.classList.remove('recording');
+        recordBtn.innerHTML = '🎤 开始录音';
+      };
+
+      recognition.onend = () => {
+        if (isRecording) {
+          recognition.start();
+        }
+      };
+    }
+
+    if (isRecording) {
+      recognition.stop();
+      isRecording = false;
+      recordBtn.classList.remove('recording');
+      recordBtn.innerHTML = '🎤 开始录音';
+      statusDiv.textContent = '录音已停止';
+    } else {
+      recognition.start();
+      isRecording = true;
+      recordBtn.classList.add('recording');
+      recordBtn.innerHTML = '⏹️ 停止录音';
+      statusDiv.textContent = '正在听...请说英文';
+    }
+  });
+
+  // 示范按钮
+  demoBtn.addEventListener('click', () => {
+    const dialog = getCurrentDialog();
+    if (dialog) {
+      speakText(dialog.expected);
+      statusDiv.textContent = '播放标准回答中...';
+    }
+  });
+
+  // ========== 页面加载完毕 ==========
+  window.addEventListener('load', () => {
+    initSceneButtons();
+    startRound(); // 默认开始第一个场景第一轮
+  });
+</script>
+</body>
+</html>
